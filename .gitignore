@@ -3,6 +3,7 @@
 !/.gitignore
 !/README.md
 !/THIRD_PARTY_NOTICES.md
+!/.github/
 !/licenses/
 !/docs/
 /docs/*

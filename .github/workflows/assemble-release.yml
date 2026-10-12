@@ -1,0 +1,47 @@
+name: Assemble verified portable release
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Draft release containing the uploaded parts
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      TAG: v0.1.0
+      ARCHIVE: Dictor-Portable-win-x64.zip
+      EXPECTED_SHA: 2b741a1f1e3a505f0356784ae5f431dbb369c9c68036fb94e6d29ddaed1901b7
+    steps:
+      - name: Download parts, verify, and publish the original archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > release.json
+          jq -e --arg tag "$TAG" '.draft == true and .tag_name == $tag' release.json >/dev/null
+          mkdir parts
+          for i in $(seq 0 30); do
+            name="$ARCHIVE.part$(printf '%03d' "$i")"
+            id=$(jq -er --arg name "$name" '.assets[] | select(.name == $name and .state == "uploaded") | .id' release.json)
+            gh api "repos/$GITHUB_REPOSITORY/releases/assets/$id" -H 'Accept: application/octet-stream' > "parts/$name"
+          done
+          cat parts/"$ARCHIVE".part* > "$ARCHIVE"
+          [[ $(stat -c%s "$ARCHIVE") == 2062449341 ]]
+          printf '%s  %s\n' "$EXPECTED_SHA" "$ARCHIVE" > "$ARCHIVE.sha256"
+          sha256sum -c "$ARCHIVE.sha256"
+          gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > verified.json
+          jq -e --arg file "$ARCHIVE" --arg hash "sha256:$EXPECTED_SHA" '.assets[] | select(.name == $file and .state == "uploaded" and .size == 2062449341 and .digest == $hash)' verified.json >/dev/null
+          for i in $(seq 0 30); do
+            name="$ARCHIVE.part$(printf '%03d' "$i")"
+            id=$(jq -er --arg name "$name" '.assets[] | select(.name == $name) | .id' verified.json)
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+          done
+          gh release edit "$TAG" --draft=false --prerelease --repo "$GITHUB_REPOSITORY"
