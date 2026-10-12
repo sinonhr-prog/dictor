@@ -29,8 +29,20 @@ jobs:
           mkdir parts
           for i in $(seq 0 30); do
             name="$ARCHIVE.part$(printf '%03d' "$i")"
-            id=$(jq -er --arg name "$name" '.assets[] | select(.name == $name and .state == "uploaded") | .id' release.json)
-            gh api "repos/$GITHUB_REPOSITORY/releases/assets/$id" -H 'Accept: application/octet-stream' > "parts/$name"
+            id=$(jq -r --arg name "$name" '.assets[] | select(.name == $name and .state == "uploaded") | .id' release.json)
+            bytes=$((2062449341 - i * 67108864))
+            if ((bytes > 67108864)); then bytes=67108864; fi
+            if [[ -n "$id" ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/releases/assets/$id" -H 'Accept: application/octet-stream' > "parts/$name"
+            else
+              chunks=$(((bytes + 8388607) / 8388608))
+              for j in $(seq 0 $((chunks - 1))); do
+                sub="$name.sub$(printf '%03d' "$j")"
+                id=$(jq -er --arg name "$sub" '.assets[] | select(.name == $name and .state == "uploaded") | .id' release.json)
+                gh api "repos/$GITHUB_REPOSITORY/releases/assets/$id" -H 'Accept: application/octet-stream' >> "parts/$name"
+              done
+            fi
+            [[ $(stat -c%s "parts/$name") == "$bytes" ]]
           done
           cat parts/"$ARCHIVE".part* > "$ARCHIVE"
           [[ $(stat -c%s "$ARCHIVE") == 2062449341 ]]
@@ -39,9 +51,7 @@ jobs:
           gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY"
           gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > verified.json
           jq -e --arg file "$ARCHIVE" --arg hash "sha256:$EXPECTED_SHA" '.assets[] | select(.name == $file and .state == "uploaded" and .size == 2062449341 and .digest == $hash)' verified.json >/dev/null
-          for i in $(seq 0 30); do
-            name="$ARCHIVE.part$(printf '%03d' "$i")"
-            id=$(jq -er --arg name "$name" '.assets[] | select(.name == $name) | .id' verified.json)
+          for id in $(jq -r '.assets[] | select(.name | test("^Dictor-Portable-win-x64\\.zip\\.part[0-9]{3}(\\.sub[0-9]{3})?$")) | .id' verified.json); do
             gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
           done
           gh release edit "$TAG" --draft=false --prerelease --repo "$GITHUB_REPOSITORY"
