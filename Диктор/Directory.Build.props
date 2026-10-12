@@ -1,0 +1,1 @@
+<Project><PropertyGroup><RestorePackagesWithLockFile>true</RestorePackagesWithLockFile><RestorePackagesPath>$(MSBuildThisFileDirectory).packages</RestorePackagesPath><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><Deterministic>true</Deterministic></PropertyGroup></Project>
